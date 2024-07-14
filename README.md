@@ -1,5 +1,5 @@
-## main java 파일
-- jobs/EventLoader.java
+## main java 파일 위치
+- src/main/java/jobs/EventLoader.java
 
 ## 테스트 환경
 - hadoop 2.7.3
