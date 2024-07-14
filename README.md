@@ -1,6 +1,13 @@
 ## main java 파일 위치
 - src/main/java/jobs/EventLoader.java
 
+## 요구사항 - [충족여부]
+- KST 기준 daily partition 처리 [O]
+- 재처리 후 parquet, snappy 처리 [O]
+- External Table 방식으로 설계 [O]
+- 추가 기간 처리에 대응가능하도록 구현 [O] 
+- 배치 장애시 복구를 위한 장치 구현 [?]
+  
 ## 테스트 환경
 - hadoop 2.7.3
 - spark 2.3.0
