@@ -58,33 +58,6 @@ public class EventLoader {
 
         StructType schema = DataTypes.createStructType(fields);
 
-        // 데이터 로드 및 처리
-        for (String filename : targetFilenames) {
-            Path checkFilePath = new Path(checkPointPath, filename + ".check");
-            if (!fileSystem.createNewFile(checkFilePath)) {
-                throw new IOException("checkDir 이 존재하는지 확인해주세요.");
-            }
-
-            String inputFilePath = String.join("/", inputDir, filename);
-            Dataset<Row> df = spark.read()
-                    .schema(schema)
-                    .option("header", "true")
-                    .option("sep", ",")
-                    .csv(inputFilePath);
-
-            Dataset<Row> formattedDF = df
-                    .withColumn("event_time_utc",
-                            date_format(to_timestamp(regexp_replace(col("event_time"), " UTC$", "")), "yyyy-MM-dd HH:mm:ss"))
-                    .withColumn("event_time_kst", from_utc_timestamp(col("event_time_utc"), zoneId))
-                    .withColumn("partition_key", date_format(col("event_time_kst"), "yyyy-MM-dd"));
-
-            // 데이터를 Parquet 포맷으로 저장
-            formattedDF.write()
-                    .mode(SaveMode.Append)
-                    .partitionBy("partition_key")
-                    .parquet(outputPath+"/parquet");
-        }
-
         // Hive External Table 생성
         spark.sql("CREATE EXTERNAL TABLE IF NOT EXISTS " + tableName + " ("
                 + "event_time STRING, "
@@ -102,8 +75,43 @@ public class EventLoader {
                 + "STORED AS PARQUET "
                 + "LOCATION '" + outputPath + "/parquet'");
 
-        // 테이블 데이터 복구
-        spark.sql("MSCK REPAIR TABLE " + tableName);
+        // 데이터 로드 및 처리
+        for (String filename : targetFilenames) {
+            Path checkFilePath = new Path(checkPointPath, filename + ".check");
+            if (!fileSystem.createNewFile(checkFilePath)) {
+                throw new IOException("checkDir 이 존재하는지 확인해주세요.");
+            }
+
+            String inputFilePath = String.join("/", inputDir, filename);
+            System.out.println("log: " + inputFilePath);
+            Dataset<Row> df = spark.read()
+                    .schema(schema)
+                    .option("header", "true")
+                    .option("sep", ",")
+                    .csv(inputFilePath);
+
+            Dataset<Row> formattedDF = df
+                    .withColumn("event_time_utc",
+                            date_format(to_timestamp(regexp_replace(col("event_time"), " UTC$", "")), "yyyy-MM-dd HH:mm:ss"))
+                    .withColumn("event_time_kst", from_utc_timestamp(col("event_time_utc"), zoneId))
+                    .withColumn("partition_key", date_format(col("event_time_kst"), "yyyy-MM-dd"));
+
+            // 데이터를 Parquet 포맷으로 저장
+            formattedDF.write()
+                    .mode(SaveMode.Append)
+                    .partitionBy("partition_key")
+                    .parquet(outputPath + "/parquet");
+
+            List<Row> partitions = formattedDF.select("partition_key").distinct().collectAsList();
+            for (Row row : partitions) {
+                String partitionKey = row.getString(0);
+                String partitionPath = outputPath + "/parquet/partition_key=" + partitionKey;
+                String partitionQuery = String.format("ALTER TABLE %s ADD IF NOT EXISTS PARTITION (partition_key='%s') LOCATION '%s'",
+                        tableName, partitionKey, partitionPath);
+                spark.sql(partitionQuery);
+            }
+        }
+
         spark.stop();
     }
 
